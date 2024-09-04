@@ -1,0 +1,735 @@
+---
+title: "Post Module Assignment"
+author:
+- Susmitha Mutapally
+- Zachary Long
+- Serena Yuzuki
+- Olivia Poon
+- Monewa Matlwa
+output:
+  pdf_document: 
+    latex_engine: xelatex
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+# change the root.dir below to point to the folder where your talent_flows.csv is located. 
+knitr::opts_knit$set(root.dir = "/Users/zacharylong/Library/CloudStorage/Dropbox/NYU MSBA/Module 4/Network Analytics/Post-Module/")
+#knitr::opts_knit$set(root.dir = "/Users/oliviapoon/Documents/Stern Note/Module_4/M4. Network Analytics/Post-Module")
+```
+
+# 1. Libraries and Data
+## 1.0.1 load the libraries
+```{r message=FALSE, warning=FALSE}
+library(igraph)
+library(dplyr)
+library(ggplot2)
+```
+
+## 1.0.2 load the data
+```{r}
+df_talent_flows = read.csv("talent_flows.csv") 
+head(df_talent_flows, 3)
+```
+
+```{r}
+df_company = read.csv("linkedin_company_metadata.csv") 
+head(df_company, 3)
+```
+
+## 1.1 Create dataframe df_edges
+```{r}
+df_edges <- df_talent_flows[, c("from", "to")]
+```
+
+
+# 2. Getting familiar with the data
+## 2.1
+Create an igraph graph object using the df_edges dataframe
+```{r fig.height=8, fig.width=8}
+p_2.1 <- graph_from_data_frame(df_edges)
+plot(p_2.1, 
+     vertex.size = 1.5, 
+     edge.width = 0.5, 
+     edge.arrow.size = 0.2, 
+     vertex.label=NA, 
+     #vertex.label.cex = 0.5,
+     layout=layout.kamada.kawai)
+```
+
+## 2.2
+Calculate the in-degree and out-degree for each firm.
+```{r eval=FALSE, include=FALSE}
+# top 10 firms with the highest in-degree
+df_talent_flows %>%
+  summarise(in_degree = sum(migration_count), .by = to) %>%
+  slice_max(in_degree, n = 10)
+
+# the 10 firms with the highest out-degree
+df_talent_flows %>%
+  summarise(out_degree = sum(migration_count), .by = from) %>%
+  slice_max(out_degree, n = 10) 
+```
+
+```{r}
+# copy df_company to firm_data and add rank column for easier identify the largest firms
+firm_data <- df_company %>% mutate(rank = dense_rank(desc(emp_count))) 
+```
+
+```{r}
+# top 10 firms with the highest in-degree
+firm_data <- 
+  inner_join(x = firm_data,
+             # y is the aggregated data frame that contains in_degree 
+             y = df_talent_flows %>% 
+               #summarise(in_degree = sum(migration_count), .by = to),
+               summarise(in_degree = n(), .by = to),
+             by = join_by(company_id == to))
+
+firm_data %>% slice_max(in_degree, n = 10) %>% select(company_id, rank, emp_count, in_degree)
+```
+```{r}
+# the 10 firms with the highest out-degree
+(inner_join(x = firm_data,
+           # y is the aggregated data frame that contains out_degree
+           y = df_talent_flows %>%
+              #summarise(out_degree = sum(migration_count), .by = from),
+              summarise(out_degree = n(), .by = from),
+           by = join_by(company_id == from)) -> firm_data) %>% 
+  select(company_id, rank, emp_count, out_degree) %>% 
+  slice_max(out_degree, n = 10) 
+```
+
+**In-Degree:** The in-degree of a firm indicates how many employees have moved to this firm from other firms. A higher in-degree suggests that the firm is a popular destination for employees, possibly indicating its attractiveness as an employer.
+
+**Out-Degree:** The out-degree of a firm represents how many employees have left this firm to join other firms. A higher out-degree may suggest that a significant number of employees are leaving the firm, which could be a sign of various factors like work environment, growth opportunities, or industry trends.
+
+
+## 2.3 
+The observation that firms with the highest degree (both in-degree and out-degree) are biased towards larger firms can be explained by several factors:
+
+1. **Larger Employee Base:** Large firms typically have a higher number of employees. This naturally increases the likelihood of more employees moving in or out simply due to the scale of their workforce. More employees mean more potential for internal job changes, promotions, and exits, which contribute to higher talent flow.
+
+2. **Industry Influence and Visibility:** Larger firms tend to have a more significant presence and influence in their respective industries. Their visibility often makes them attractive to job seekers, leading to a higher in-degree. Similarly, having experience at a well-known, large firm can be a valuable asset for employees looking to move to other organizations, contributing to a higher out-degree.
+
+3. **Network Effects:** Large firms are often more interconnected within industry networks. Their partnerships, client relationships, and industry involvement give them more touch points with other companies, facilitating employee movement.
+
+## 2.4
+```{r eval=FALSE, include=FALSE}
+# Create a directed graph and calculate in-degree and out-degree
+graph <- graph_from_data_frame(df_talent_flows, directed = TRUE)
+in_degree <- degree(graph, mode = "in")
+out_degree <- degree(graph, mode = "out")
+```
+
+
+```{r eval=FALSE, include=FALSE}
+# Create a dataframe of degrees
+degree_data <- data.frame(company_id = names(V(graph)), in_degree, out_degree)
+
+# Merge with the linkedin metadata
+firm_data <- merge(degree_data, df_company, by = 'company_id')
+```
+
+
+```{r}
+# Linear regression for in-degree
+model_in_degree <- lm(in_degree ~ emp_count, data = firm_data)
+summary(model_in_degree)
+```
+```{r}
+# Linear regression for out-degree
+model_out_degree <- lm(out_degree ~ emp_count, data = firm_data)
+summary(model_out_degree)
+```
+## 2.5
+
+**In-degree:**
+
+The coefficient for emp_count is approximately 0.0009545. This means for each additional employee, the in-degree increases by about 0.0009545. It signifies a positive relationship between the size of the firm and the in-degree. Larger firms tend to have a higher number of incoming talent flows.
+
+The small p-values for the coefficients suggest that these relationships are statistically significant.
+
+This indicates that larger firms are more likely to attract a higher number of employees from other firms, supporting the initial observation of a bias towards larger firms in terms of talent attraction.
+
+
+**Out-degree:**
+
+The coefficient for emp_count is approximately 0.001055. This indicates that for each additional employee, the out-degree increases by about 0.001055. It signifies a positive relationship between the size of the firm and the out-degree. Larger firms tend to have a higher number of outgoing talent flows.
+
+The low p-values indicate that these relationships are statistically significant.
+
+This suggests that larger firms are more likely to have a higher number of employees leaving for other firms. This could be reflective of larger firms' dynamic workforce environments, where a higher volume of talent exchange is a norm.
+
+# 3. Weighted Edges
+## 3.1
+```{r}
+# Join the talent flows data with the company metadata
+df_joined <- merge(df_talent_flows, df_company, by.x = 'from', by.y = 'company_id')
+
+# Calculate the weights
+df_joined$weight <- df_joined$migration_count / df_joined$emp_count
+
+# Create df_edges with weights
+df_edges <- df_joined[, c('from', 'to', 'weight')]
+head(df_edges)
+```
+
+## 3.2
+```{r}
+# Create a directed graph with weighted edges from df_edges
+graph_weighted <- graph_from_data_frame(df_edges, directed = TRUE)
+```
+
+
+```{r eval=FALSE, include=FALSE}
+## dont need this block, because graph_from_data_frame automatically use the weight col as weight if populated
+print(graph_weighted %>% is_weighted)
+print(E(graph_weighted)$weight[1:10])
+
+# Add weights to the edges
+E(graph_weighted)$weight <- df_edges$weight
+print(graph_weighted %>% is_weighted)
+print(E(graph_weighted)$weight[1:10])
+```
+
+```{r fig.height=8, fig.width=8}
+# Plot the graph
+p_3.2 <- graph_weighted
+plot(p_3.2, 
+     vertex.size = 1.5, 
+     edge.width = 0.5, 
+     edge.arrow.size = 0.2, 
+     vertex.label=NA, 
+     #vertex.label.cex = 0.5,
+     layout=layout.kamada.kawai)
+```
+
+## 3.3
+```{r eval=FALSE, fig.height=5, fig.width=5, include=FALSE}
+## checked help("induced_subgraph"), vids should be a Numeric vector
+## the unique_nodes below is not numeric vector, so it doesn't work 
+
+edges <- get.data.frame(graph_weighted, what = "edges")
+
+# Order the edges by weight and get the top 10
+top_edges_df <- head(edges[order(-edges$weight), ], 10)
+
+# Extract the unique nodes involved in these top edges
+unique_nodes <- unique(c(top_edges_df$from, top_edges_df$to))
+
+# Create a subgraph with these top edges and nodes
+subgraph <- induced_subgraph(graph_weighted, vids = unique_nodes)
+
+# Plot the graph
+plot(subgraph, vertex.label=NA, edge.label = NA)
+```
+
+```{r fig.height=8, fig.width=8}
+edges <- get.data.frame(graph_weighted, what = "edges")
+
+# Order the edges by weight and get the top 10
+top_edges_df <- head(edges[order(-edges$weight), ], 10)
+
+p_3.3 <- graph_from_data_frame(top_edges_df)
+
+plot(p_3.3, 
+     layout=layout.kamada.kawai,
+     edge.width = E(p_3.3)$weight/min(E(p_3.3)$weight)*1.5,
+     edge.arrow.size = E(p_3.3)$weight/min(E(p_3.3)$weight)*0.25,
+     edge.label = round(E(p_3.3)$weight, 3),
+     edge.label.cex = 0.9, 
+     vertex.label.cex = 0.8)
+```
+
+## 3.4
+In this graph, an edge's weight represents the proportion of employees that have left the origin firm to join the destination firm. A high weight indicates that a relatively large percentage of the origin firm's workforce moved to the destination firm. This could imply a significant talent acquisition by the destination firm or a substantial talent loss for the originating firm.
+
+The edge with highest weight is from HP to Hewlett Packard Enterprise. These two companies were the same company HP until October 2014 that HP split into HP and HPE. HP handles the traditional PC and printers business whereas HPE handles the enterprise products and services. Similar to EBay and PayPal, they were the same company and split into two. 
+
+<!-- Anything else interesting that we can notice? -->
+Symantec acquired Verisign, resulting in the flow from Verisign to Symantec.
+Ingersoll Rand spun off Allegion, indicating the flow from Ingersoll to Allegion.
+ConocoPhillips became Phillips 66 Company after spinning off operations, resulting in the flow from ConocoPhillips to Phillips 66.
+AbbVie was formerly owned by Abbott, showing the flow from Abbott to AbbVie.
+International Paper acquired Weyerhaeuser, showing the flow from Weyerhaeuser to International Paper.
+Marriott acquired Host Hotels & Resorts, showing the flow from Host to Marriott.
+Keysight Technologies is a spin-off of Agilent Technologies, showing the flow from Keysight to Agilent.
+
+The only non-merger or spin-off is Cisco and Juniper, Cisco and Juniper Networks are competitors in the same industry of networking.
+
+# 4. PageRank
+
+## 4.1
+PageRank is explained by a random surfer, or someone randomly surfing the web and clicking on pages. Eventually based on random clicking, the surfer will land on pages with more links pointing to them over time. The web pages with the most links pointing to it will rank the highest in this simple model without weights.
+
+The likelihood of this random surfer to click on a link and arrive on a web page can be used to rank the importance of the web page with weights given to the links to form edges in a network graph. Accounting for the authority or importance of the page sending the link as a whole (a link from The New York Times website vs. a small unknown blog reporting the same new story), PageRank is a calculation of the number links and their importance as a weighted edge that a web page has pointing to it. Those pages with more authority give a higher weight to links they share, resulting in a higher weight to the edge and a higher PageRank calculation. Thus, the random surfer is more likely to arrive at pages with higher PageRank due to their being more links pointing to it from randomly surfing, and a random surfer is also more likely to click on links from high-value sources which have higher weighted edges.
+
+<!-- comment
+The higher PageRank in our graph means the higher chance a person will stay at that company after multiple times of job change???
+
+Yes I think so, PageRank would be similar to company rank in this case. Higher PageRank companies are those with more authority, like The New York Times versus a smaller news site. Larger companies would similarly have more authority than smaller companies (working for Google vs working for a 5 person start-up). This would reflect in a higher PageRank for those companies with both large size and higher influence in the industry or reputation.
+
+so using the graphs with weighted edges will be more accurate because the weighted edges account the migration and company sizes???
+
+Yes the weighted edges (authority of a page) would be similar to migration and take into account the company rank based on size and authority. In the Random Surfer model, the likelihood of a click is based on the number of links pointing to the page, increasing the changes of the surfer visiting. A larger company would have more employees, making more transitions (links or edges here), which is the unweighted rank based on pure volume..
+
+what do you think???
+-->
+
+
+## 4.2
+```{r}
+pagerank_weighted <- page_rank(p_3.2)
+pagerank_unweighted <- page_rank(p_3.2, weights = NA)
+```
+
+```{r}
+# top 10 weighted
+pagerank_weighted$vector %>% 
+  sort(decreasing = T) %>% 
+  head(10) %>% 
+  as.data.frame()
+```
+```{r}
+# top 10 unweighted
+pagerank_unweighted$vector %>% 
+  sort(decreasing = T) %>% 
+  head(10) %>% 
+  as.data.frame()
+```
+
+## 4.3
+```{r}
+# histogram for weighted
+p_4.3_w <- 
+  ggplot(data = as.data.frame(pagerank_weighted$vector), 
+         aes(x = pagerank_weighted$vector)) + 
+  geom_histogram(bins = 30) +
+  ggtitle("Histogram of Weighted PageRank") +
+  labs(x = "Weighted PageRank")
+plot(p_4.3_w)
+```
+
+```{r}
+# histogram for unweighted
+p_4.3_uw <- 
+  ggplot(data = as.data.frame(pagerank_unweighted$vector), 
+         aes(x = pagerank_unweighted$vector)) + 
+  geom_histogram(bins = 30) +
+  ggtitle("Histogram of Unweighted PageRank") +
+  labs(x = "Unweighted PageRank")
+plot(p_4.3_uw)
+```
+<!-- Comment on the differences, and explain why these might be different. -->
+<!--
+The weighted approach values the 'quality' of job movements (source firm reputation), whereas the unweighted approach values 'quantity' (number of movements). Larger companies have higher quantity of movements which can be seen in large workforce companies such as WellsFargo at #1 and Accenture #4 for Unweighted rank, however when adding in weights or industry importance, we see these two fall down the list with WellsFargo now being just one place higher (4th) than Bank of America (5th), and Accenture falling all the way down to 8th. The weighted list also begins to show tech companies which did not appear on the unweighted rank. Microsoft rises to 2nd on the weighted list, and now Google and Oracle, both smaller in company size, now appear on the Top 10 when accounting for weighted rankings.
+-->
+
+# 5. Community Detection
+## 5.1
+```{r, eval=TRUE, fig.height=50, fig.width=50, include=TRUE}
+
+# Detecting communities using Walktrap algorithm
+wt_communities <- walktrap.community(graph_weighted, steps = 4)
+
+# Plotting the communities
+plot(wt_communities, graph_weighted, 
+     vertex.size = 1.5, 
+     edge.width = 0.5, 
+     edge.arrow.size = 0.2, 
+     vertex.label=NA, 
+     #vertex.label.cex = 0.5,
+     layout=layout.kamada.kawai)
+
+```
+
+
+## 5.2 Community Analysis
+```{r}
+library(dplyr)
+library(fmsb)
+library(tidyr)
+library(igraph)
+
+
+# Create a mode function - 
+# https://stackoverflow.com/questions/2547402/how-to-find-the-statistical-mode
+Mode <- function(x) {
+  ux <- unique(x)
+  ux[which.max(tabulate(match(x, ux)))]
+}
+
+# Extract community membership
+membership <- membership(wt_communities)
+
+# Add community information to firm_data
+firm_data$community <- membership[as.character(firm_data$company_id)]
+
+# Analyze commonalities within each community
+# For example, examining industry commonalities
+community_industry_analysis <- firm_data %>%
+  group_by(community) %>%
+  summarise(
+    # the main industry in the community
+    industry_mode = Mode(industry),
+    # average company size of the community
+    avg_emp_count = mean(emp_count, na.rm = TRUE),
+    # median of the founded year of the companies in the community
+    median_founded = median(founded, na.rm = TRUE), # Median of the founded year of the companies
+    member_count = n())  # Count of members in the community
+
+# View the summary
+print(community_industry_analysis)
+
+# Visualize the communities
+g <- ggplot(firm_data, aes(x = factor(community), fill = industry)) +
+  geom_bar() +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1), # Rotate x-axis labels to prevent overlap
+        plot.margin = unit(c(1,1,1,1), "cm")) + # Adjust plot margins
+  labs(x = "Community", y = "Count", fill = "Industry")
+
+# Save the plot to a file with adjusted dimensions
+ggsave("community_plot.png", plot = g, width = 12, height = 8, dpi = 300)
+
+```
+
+```{r fig.height=10, fig.width=8, message=FALSE, warning=FALSE}
+ggplot(firm_data, 
+       aes(x = factor(industry)))+
+  geom_histogram(stat="count") +
+  facet_wrap(.~community, nrow = 5, scales = "free")
+```
+
+
+```{r}
+library(tidyr)
+
+# Aggregate in-degree and out-degree by community
+community_flow_analysis <- firm_data %>%
+  group_by(community) %>%
+  summarise(avg_in_degree = mean(in_degree, na.rm = TRUE),
+            avg_out_degree = mean(out_degree, na.rm = TRUE),
+            net_flow = avg_in_degree - avg_out_degree)
+
+# Reshape the data using pivot_longer
+community_flow_long <- community_flow_analysis %>%
+  pivot_longer(cols = c(avg_in_degree, avg_out_degree), names_to = "degree_type", values_to = "degree_value")
+
+# Create the grouped bar chart
+ggplot(community_flow_long, aes(x = factor(community), y = degree_value, fill = degree_type)) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  scale_fill_manual(values = c("avg_in_degree" = "blue", "avg_out_degree" = "red")) +
+  labs(x = 'Community', y = 'Average Degree', fill = 'Degree Type') +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) # Adjust text angle for better readability
+
+# Save the plot
+ggsave("community_degree_grouped_plot.png", width = 10, height = 6, dpi = 300)
+
+```
+
+
+<!-- What commonalities do you observe within each community?
+No idea... industry type? location-city?
+
+
+
+Finding the Mode of each community by industry finds the most commonly occurring industry within each community. Community 1, Semiconductors, is the second largest community by average employees, and also one of the newest communities, with the average founding year of 1989. Businesses in this community are likely engaged in similar business activities for large semiconductor or related firms. 
+Analyzing the average employee count will show the similar size of businesses within each community. The largest community is Community 2 which is Retail industry, and contains 120 members and an average employee count of 53786.283, which is over 10,000 larger than the second community by average employee (Semiconductors). Companies in this community are very large and well-established, having been around longer than other industries being founded in 1962 on average. The smaller communities, such as Community 8 or Community 9, suggest small to mid-size firms, and looking at the industry of Real Estate, this may indicate the mode regional specialization of Real Estate businesses as a whole rather than the larger national or international business industries of Semiconductors, Retail, or Financial Services (Community 7's industry which is third largest by average employee count).
+The Median Founded age of communities can again reinforce that the community detection was valid, as we saw with Community 1 being founded in 1989 which would track with the relatively newer semiconductor industry if all members of that community are in that business or similar or related industries. Communities 4 and 5, Consumer Goods in 1911 and Utilities in 1916, are the oldest average founded communities and align with more traditional established businesses in stable industries.
+One final interesting note if the detection of two Real Estate communities, community 8 and 9. While founded in the same average year of 1972, looking at the number of members of the community, while both small, can indicate that Community 9 is a more specialized niche in the same industry, possibly indicating Commercial versus Residential real estate or other such specialization within the industry.
+
+-->
+
+# 6. Assortativity
+## 6.1
+Assortative mixing is the tendency for nodes of a network to be to be connected to other nodes with similar characteristics, or in this context of company analysis, companies will tend to connect with others on the network graph with similar companies based attributes such as the company size or similar industry sectors.
+This concept was commonly explained in relation to social networks the paper we read for class, "The Anatomy of the Facebook Social Graph" (Ugander, Karrer, Backstrom, Marlow) as "your friends have more friends than you do" to explain how people have similar sized social networks  between friends but also slightly larger as the second degree connections are themselves connected to other netowrks. 
+Assortative mixing is also formally defined in another academic paper cited by the Facebook paper, M. E. J. Newman's "Assortative Mixing in Networks" (Phys. Rev. Lett. 89, 208701 – Published 28 October 2002) and defined formally as "A network is said to show assortative mixing if the nodes in the network that have many connections tend to be connected to other nodes with many connections." 
+
+## 6.2 
+```{r}
+# not sure this one...
+assortativity <- assortativity(graph_weighted, types1 = membership)
+
+# or this one is correct... 
+assortativity <- 
+  assortativity(graph_weighted,
+                types1 = firm_data[match(V(graph_weighted)$name,
+                                         firm_data$company_id),]$industry %>% 
+                                 as.factor %>% 
+                                 as.numeric)
+
+print(paste("The assortatative mixing level for industry is", assortativity %>% round(3)))
+```
+
+## Delete this later but for now:
+Thank you for sharing your teammate's code. It provides valuable insight into how to approach the problem. The key here is to ensure that the types1 parameter in the assortativity function correctly maps to the industry for each node in the network. Let's examine the two approaches suggested by your teammate and refine them as needed:
+
+First Approach:
+
+assortativity <- assortativity(graph_weighted, types1 = membership)
+
+In this code, membership is being used as the types1 parameter. However, this doesn't seem correct because membership likely refers to the community assignment of each node, not their industries.
+
+Second Approach:
+
+assortativity <- 
+  assortativity(graph_weighted,
+                types1 = firm_data[match(V(graph_weighted)$name,
+                                         firm_data$company_id),]$industry %>% 
+                                 as.factor %>% 
+                                 as.numeric)
+                                 
+This approach attempts to align the industries from firm_data with the nodes in graph_weighted using the match function. This is closer to what is needed, but the conversion to numeric after making it a factor might not be appropriate for assortativity analysis based on categorical data like industries.
+
+Let's refine this second approach to correctly map industries to nodes:
+
+```{r}
+library(igraph)
+library(dplyr)
+
+# Ensure firm_data's company_id column is character type for proper matching
+firm_data$company_id <- as.character(firm_data$company_id)
+
+# Create a vector of industries for each node in the network
+industry_vector <- firm_data[match(V(graph_weighted)$name, firm_data$company_id), "industry"]
+
+# Convert industry to a factor
+industry_vector <- factor(industry_vector)
+
+# Check for NAs
+if(any(is.na(industry_vector))) {
+  warning("There are nodes without a matching industry. Check your data alignment.")
+} else {
+  # Calculate assortativity for industry
+  assortativity_coefficient <- assortativity(graph_weighted, types1 = industry_vector, directed = FALSE)
+
+  # Print the assortativity coefficient
+  print(paste("The assortatative mixing level for industry is", round(assortativity_coefficient, 3)))
+}
+
+```
+This also gives same output of 0.026 so I think you were correct Olivia :)
+
+The assortativity coefficient of 0.026 for your network indicates a very slight tendency towards assortative mixing based on the industry sector. Let's interpret what this means in the context of your network analysis:
+
+Interpreting the Assortativity Coefficient (0.026):
+Near-Zero Value: An assortativity coefficient close to zero, like 0.026, suggests that there is only a very weak trend in the network for companies to connect with others in the same industry. This is indicative of a network where companies are almost as likely to connect with companies from different industries as they are to connect with companies from their own industry.
+
+Implications for Network Structure:
+
+Diverse Connections: The network likely exhibits a mix of connections across different industries, indicating a level of diversity in the interactions between companies.
+Limited Industry Clustering: There is limited clustering or grouping of companies solely based on their industry, suggesting that other factors might play a more significant role in defining the network structure.
+Strategic and Operational Insights:
+
+Cross-Industry Interactions: The results imply that companies in your network might be involved in cross-industry collaborations, partnerships, or talent flows, reflecting a diverse business ecosystem.
+Potential for Innovation and Knowledge Exchange: Such a network structure can be beneficial for innovation and knowledge exchange, as companies are exposed to a variety of practices, technologies, and market strategies from different sectors.
+Market Dynamics: The slight assortative mixing might also reflect broader market dynamics, where companies need to interact across industries for various reasons, such as supply chain requirements, customer relations, or regulatory compliance.
+Considerations for Further Analysis:
+
+Role of Other Factors: Since industry alone does not strongly determine network connections, it would be worthwhile to examine other factors like company size, geographic location, or specific business functions to understand the network structure better.
+Dynamic Nature of Networks: Keep in mind that networks are dynamic. Changes in the industry landscape, such as technological advancements or market disruptions, could influence future patterns of assortative mixing.
+
+<!-- 
+Re-write of this as interpretation:
+
+The output of the Assortativity Coefficient is close to zero at 0.026, this suggests a low level of assortativity based on the types1 argument of membership. From the igraph documentation ( https://igraph.org/r/doc/assortativity.html ) we are told "The assortativity coefficient is positive is similar vertices (based on some external property) tend to connect to each, and negative otherwise." So while the coefficient is low, it is still positive showing their is a tendency to connect, however small.
+In this initial analysis we are only looking at community membership, and the low coefficient score may reflect other factors that are leading to this mixing such as geographic location, company size, or other factors that could be further explored with the dataset.
+-->
+
+
+## 6.3
+<!--
+maybe city??? ppl looks for new job in same city instead of moving to new city for new job???
+-->
+Yes that definitely makes logical sense, I am only looking for jobs nearby I don't want to move :). But is city too spread out in the data unless we grouped by state or region (East Coast, Midwest, West Coast, South???) Ok I asked ChatGPT and it suggested a similar answer for grouping... but it was able to run based on just using city without grouping too:
+
+```{r}
+library(igraph)
+library(dplyr)
+
+# Check the number of unique cities
+unique_cities <- length(unique(firm_data$city))
+print(paste("Number of unique cities:", unique_cities))
+
+# If needed, group cities into regions (this step requires specific logic based on your data)
+
+# Map city/region categories to network nodes
+city_vector <- firm_data[match(V(graph_weighted)$name, firm_data$company_id), "city"]
+
+# Check for NAs
+if(any(is.na(city_vector))) {
+  warning("There are nodes without a matching city. Check your data alignment.")
+} else {
+  # Calculate assortativity for cities/regions
+  city_assortativity <- assortativity(graph_weighted, factor(city_vector), directed = FALSE)
+
+  # Print the assortativity coefficient for cities/regions
+  print(paste("Assortativity coefficient for cities/regions:", round(city_assortativity, 3)))
+}
+
+```
+
+<!-- Rewrite
+The assortativity coefficient for cities, while positive, is even lower at 0.007 indicating that the location of the company is not a strong indicator of network connectivity
+
+-->
+
+## 6.3 2nd Characteristic Founded (in-conclusive)
+
+<!--
+We can also look at the founded column of our firm_data to check for assortativity. Looking at the dataset we are missing the founded year for some companies, so we can ignore NA values.
+-->
+
+```{r}
+library(igraph)
+library(dplyr)
+
+# Filter out firms with NA in the founded column
+firm_data_filtered <- firm_data %>% 
+  filter(!is.na(founded))
+
+# Align the founded data with the nodes in the graph
+founded_vector <- firm_data_filtered[match(V(graph_weighted)$name, 
+                                           firm_data_filtered$company_id), "founded"]
+
+# Convert the founded years to a factor
+founded_vector <- factor(founded_vector)
+
+# Calculate assortativity for founding year
+# This will now consider only nodes that had valid founding years
+founded_assortativity <- assortativity(graph_weighted, types1 = founded_vector, directed = FALSE)
+
+# Print the assortativity coefficient for founding year
+print(paste("Assortativity coefficient for founding year:", round(founded_assortativity, 3)))
+
+```
+
+## 6.3 Assortativity for In-Degree and Out-Degree (dissassortative)
+
+Assortativity based on in-degree could reveal if companies with similar levels of incoming connections (popularity or attractiveness) tend to link together. 
+
+```{r}
+library(igraph)
+library(dplyr)
+
+# Align the in-degree data with the nodes in the graph
+in_degree_vector <- firm_data[match(V(graph_weighted)$name, 
+                                    firm_data$company_id), "in_degree"]
+
+# Convert the in-degree data to a factor (if it's not already)
+in_degree_vector <- factor(in_degree_vector)
+
+# Calculate assortativity for in-degree
+in_degree_assortativity <- assortativity(graph_weighted, types1 = in_degree_vector, directed = FALSE)
+
+# Print the assortativity coefficient for in-degree
+print(paste("Assortativity coefficient for in-degree:", round(in_degree_assortativity, 3)))
+
+```
+
+Analyzing assortativity based on out-degree might show if companies with similar levels of outward engagement in the network tend to connect with each other.
+
+```{r}
+# Align the in-degree data with the nodes in the graph
+out_degree_vector <- firm_data[match(V(graph_weighted)$name, 
+                                    firm_data$company_id), "out_degree"]
+
+# Convert the out-degree data to a factor (if it's not already)
+out_degree_vector <- factor(out_degree_vector)
+
+# Calculate assortativity for out-degree
+out_degree_assortativity <- assortativity(graph_weighted, types1 = out_degree_vector, directed = FALSE)
+
+# Print the assortativity coefficient for out-degree
+print(paste("Assortativity coefficient for out-degree:", round(out_degree_assortativity, 3)))
+
+```
+
+The assortativity coefficients for both 'in-degree' and 'out-degree' being around -0.18 indicate a moderate tendency towards disassortative mixing based on these attributes. This suggests that in the network, companies with a high number of incoming or outgoing connections are more likely to connect with nodes having fewer connections, and vice versa.
+
+## 6.3 Assortative Community Assignment
+
+```{r}
+library(igraph)
+library(dplyr)
+
+# Ensure the community data is aligned with the nodes in the graph
+community_vector <- firm_data[match(V(graph_weighted)$name, firm_data$company_id), "community"]
+
+# Convert the community data to a factor (if it's not already)
+community_vector <- factor(community_vector)
+
+# Calculate assortativity for community assignments
+community_assortativity <- assortativity(graph_weighted, types1 = community_vector, directed = FALSE)
+
+# Print the assortativity coefficient for community assignments
+print(paste("Assortativity coefficient for community assignments:", round(community_assortativity, 3)))
+
+```
+
+The assortativity coefficient of 0.071 for community assignments in the network indicates a slight tendency towards assortative mixing based on community membership. This means that there is a weak but positive propensity for companies within the same identified community to connect with each other more than with companies in different communities.
+
+
+## 6.3 cont...
+Analyzing network based on employee count, first we can examine the relative sizes using quantiles() of companies to facilitate categorizing companies based on size.
+
+```{r}
+library(ggplot2)
+
+# Assuming 'emp_count' is the column in 'firm_data' that represents employee count
+ggplot(firm_data, aes(x = emp_count)) +
+  geom_histogram(bins = 30, fill = "blue", color = "black") +
+  theme_minimal() +
+  labs(title = "Distribution of Company Sizes",
+       x = "Employee Count",
+       y = "Frequency") +
+  scale_x_log10() # Use log scale if the data is highly skewed
+
+# Assuming 'firm_data' is your dataframe and 'emp_count' is the column for employee count
+summary(firm_data$emp_count)
+
+# To get specific quantiles, you can use the quantile function
+quantiles <- quantile(firm_data$emp_count, probs = c(0.25, 0.5, 0.75))
+print(quantiles)
+
+
+```
+Based on this distribution of companies which is a relatively normal distribution, analyze the network based on these bins:
+
+```{r}
+library(igraph)
+library(dplyr)
+
+# Categorize firms based on the new breakpoints
+firm_data$categorized_size <- cut(firm_data$emp_count, 
+                                  breaks = c(-Inf, 5738, 33361, Inf), 
+                                  labels = c("Small", "Medium", "Large"))
+
+# Map size categories to network nodes
+size_category_vector <- firm_data[match(V(graph_weighted)$name, firm_data$company_id), "categorized_size"]
+
+# Check for NAs
+if(any(is.na(size_category_vector))) {
+  warning("There are nodes without a matching size category. Check your data alignment.")
+} else {
+  # Calculate assortativity for size categories
+  size_category_assortativity <- assortativity(graph_weighted, factor(size_category_vector), directed = FALSE)
+
+  # Print the assortativity coefficient for size categories
+  print(paste("Assortativity coefficient for company size categories:", round(size_category_assortativity, 3)))
+}
+
+
+```
+
+
+<!-- Rewrite:
+Interpreting the Assortativity Coefficient using employee count we find it at -0.134, which from the documentation again "...measures the level of homophyly of the graph, based on some vertex labeling or values assigned to vertices. If the coefficient is high, that means that connected vertices tend to have the same labels or similar assigned values." The negative coefficient here indicates dissassortativity. "When r = 1, the network is said to have perfect assortative mixing patterns, when r = 0 the network is non-assortative, while at r = −1 the network is completely disassortative." ( https://en.wikipedia.org/wiki/Assortativity#Assortativity_coefficient ). While not a significantly high value, we can say that companies in the network are more likely to connect with other companies of different sizes rather than with those of similar size.
+
+-->
